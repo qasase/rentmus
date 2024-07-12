@@ -28,6 +28,9 @@ RUN apt-get update && apt-get install -y \
 # Copy Times New Roman font
 COPY ./fonts/times.ttf /app/fonts/times.ttf
 
+# Copy .env file
+COPY .env /app/.env
+
 # Install Python dependencies
 COPY requirements.txt /app/
 RUN pip install --upgrade pip && pip install -r requirements.txt

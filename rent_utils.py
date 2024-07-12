@@ -4,25 +4,64 @@ from docx import Document
 from datetime import datetime
 import os
 import threading
+from groq import Groq
+from dotenv import load_dotenv
+
+load_dotenv()
+
+client = Groq(
+    api_key=os.getenv("GROQ_API_KEY"),
+)
+
+def translate_text(text):
+    if not text:  # Skip translation if text is empty
+        return ""
+    
+    prompt = f"""Translate the following Swedish text to English:
+    {text}
+    Translation:"""
+    
+    chat_completion = client.chat.completions.create(
+        messages=[
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        ],
+        model="llama3-8b-8192",
+        temperature=0.1,
+        max_tokens=200,
+        top_p=1,
+    )
+    
+    response = chat_completion.choices[0].message.content.strip()
+    
+    # Extract only the translated text
+    translation_start = response.find('"') + 1
+    translation_end = response.rfind('"')
+    if translation_start > 0 and translation_end > translation_start:
+        return response[translation_start:translation_end]
+    else:
+        return response  # Return full response if we can't extract the translation
 
 def schedule_file_deletion(file_path, delay_seconds):
     def delete_file():
-        print(f"Attempting to delete file: {file_path}")  # Debug print
+        print(f"Attempting to delete file: {file_path}")
         if os.path.exists(file_path):
             os.remove(file_path)
             print(f"Deleted file: {file_path}")
         else:
             print(f"File not found for deletion: {file_path}")
 
-    print(f"Scheduling deletion of {file_path} in {delay_seconds} seconds")  # Debug print
+    print(f"Scheduling deletion of {file_path} in {delay_seconds} seconds")
     threading.Timer(delay_seconds, delete_file).start()
 
 def extract_info_from_pdf(pdf_path):
-    print(f"Extracting info from PDF: {pdf_path}")  # Debug print
+    print(f"Extracting info from PDF: {pdf_path}")
     with pdfplumber.open(pdf_path) as pdf:
         first_page = pdf.pages[0]
         text = first_page.extract_text()
-        print(f"Extracted text: {text}")  # Debug print
+        print(f"Extracted text: {text}")
 
         landlord_name = re.search(r'\(1\)(.*?),', text).group(1).strip()
         tenant_name = re.search(r'\(2\)(.*?)(,|\()', text).group(1).strip()
@@ -35,27 +74,24 @@ def extract_info_from_pdf(pdf_path):
             text = page.extract_text()
             match = re.search(r'Hyran är\s+([\d\s]+)', text)
             if match:
-                current_rent = match.group(1).strip().replace(" ", "")  # Remove spaces
+                current_rent = match.group(1).strip().replace(" ", "")
                 break
 
         if current_rent is None:
             raise ValueError("Current rent not found in the PDF")
 
-        print(f"Extracted info: {landlord_name}, {tenant_name}, {address}, {transaction_id}, {current_rent}")  # Debug print
+        print(f"Extracted info: {landlord_name}, {tenant_name}, {address}, {transaction_id}, {current_rent}")
         return landlord_name, tenant_name, address, transaction_id, current_rent
 
 def replace_placeholders(doc, placeholders):
     def process_paragraph(paragraph):
         text = paragraph.text
         
-        # Replace all placeholders
         for key, value in placeholders.items():
             text = text.replace(key, str(value))
         
-        # Clear the paragraph
         paragraph.clear()
         
-        # Check if this is a line that should be bold
         is_bold_line = ("(1)" in text and "Hyresvärden" in text) or \
                        ("(2)" in text and "Hyresgästen" in text) or \
                        ("(1)" in text and "Landlord" in text) or \
@@ -64,15 +100,12 @@ def replace_placeholders(doc, placeholders):
                        text.strip() == "Tenant" or \
                        text.strip().startswith("_____")
         
-        # Add the text back with appropriate formatting
         run = paragraph.add_run(text)
         run.bold = is_bold_line
 
-    # Process main document body
     for paragraph in doc.paragraphs:
         process_paragraph(paragraph)
 
-    # Process tables
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
@@ -80,17 +113,14 @@ def replace_placeholders(doc, placeholders):
                     process_paragraph(paragraph)
 
 def set_font_to_times_new_roman(doc):
-    # Set the default font for the document
     style = doc.styles['Normal']
     font = style.font
     font.name = 'Times New Roman'
     
-    # Iterate through all paragraphs and runs to set the font
     for paragraph in doc.paragraphs:
         for run in paragraph.runs:
             run.font.name = 'Times New Roman'
     
-    # Iterate through all tables, cells, paragraphs, and runs to set the font
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
@@ -99,13 +129,18 @@ def set_font_to_times_new_roman(doc):
                         run.font.name = 'Times New Roman'
 
 def create_new_rent_increase_docx(template_path, landlord_name, tenant_name, application_date, current_rent, new_rent, service_fee, address, transaction_id, free_text, end_date, output_path):
-    print(f"Creating new rent increase DOCX: {output_path}")  # Debug print
+    print(f"Creating new rent increase DOCX: {output_path}")
     doc = Document(template_path)
 
     rounded_service_fee = round(service_fee)
 
     when_se = end_date.strftime('%Y-%m-%d') if end_date else "tillsvidare"
     when_en = end_date.strftime('%Y-%m-%d') if end_date else "further notice"
+
+    # Translate free_text to English only if it's not empty
+    print(f"Original free_text: {free_text}")  # Debug log
+    free_text_en = translate_text(free_text) if free_text else ''
+    print(f"Translated free_text: {free_text_en}")  # Debug log
 
     placeholders = {
         '[LANDLORD_NAME]': landlord_name,
@@ -117,20 +152,19 @@ def create_new_rent_increase_docx(template_path, landlord_name, tenant_name, app
         '[SERVICE_FEE]': str(rounded_service_fee),
         '[APPLICATION_DATE]': application_date.strftime('%Y-%m-%d'),
         '[TODAYS_DATE]': datetime.today().strftime('%Y-%m-%d'),
-        '[FREE_TEXT]': free_text if free_text else '',
+        '[FREE_TEXT]': free_text,
+        '[FREE_TEXT_EN]': free_text_en,
         '[WHEN_SE]': when_se,
         '[WHEN_EN]': when_en,
     }
 
-    print("Placeholders to be replaced:", placeholders)  # Debug print
+    print("Placeholders to be replaced:", placeholders)
 
     replace_placeholders(doc, placeholders)
 
-    # Set the font to Times New Roman
     set_font_to_times_new_roman(doc)
 
-    # Save as DOCX
     doc.save(output_path)
-    print(f"DOCX saved: {output_path}")  # Debug print
+    print(f"DOCX saved: {output_path}")
 
     return output_path
