@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y \
 COPY ./fonts/times.ttf /app/fonts/times.ttf
 
 # Copy .env file
-COPY .env /app/.env
+#COPY .env /app/.env
 
 # Install Python dependencies
 COPY requirements.txt /app/
