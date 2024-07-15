@@ -15,9 +15,18 @@ import threading
 import pytz
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="/app"), name="static")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://qanye-app.web.app/"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # MongoDB connection
 MONGO_URL = os.getenv("MONGO_URL")
