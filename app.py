@@ -134,12 +134,19 @@ async def generate(data: dict):
 
         expiry_time = datetime.now() + timedelta(minutes=5)
 
-        # Log the generate event to MongoDB
+        # Log the generate event to MongoDB with additional information
         log_data = {
             "timestamp": datetime.now(),
             "transaction_id": transaction_id,
-            "old_rent": current_rent,
-            "new_rent": new_rent
+            "old_rent": float(current_rent),
+            "new_rent": new_rent,
+            "application_date": application_date,
+            "free_text": free_text,
+            "end_date": end_date,
+            "landlord_name": landlord_name,
+            "tenant_name": tenant_name,
+            "address": address,
+            "service_fee": service_fee
         }
         await generate_collection.insert_one(log_data)
 
@@ -185,15 +192,33 @@ async def download(filename: str):
     # Extract transaction_id from filename
     transaction_id = filename.split('_')[-1].split('.')[0]
 
-    # Log the download event to MongoDB
+    # Log the download event to MongoDB with additional information
     log_data = {
         "timestamp": datetime.now(),
         "file_type": file_type,
-        "transaction_id": transaction_id
+        "transaction_id": transaction_id,
+        "filename": filename
     }
+    
+    # Fetch the corresponding generate log to include additional information
+    generate_log = await generate_collection.find_one({"transaction_id": transaction_id})
+    if generate_log:
+        log_data.update({
+            "old_rent": generate_log.get("old_rent"),
+            "new_rent": generate_log.get("new_rent"),
+            "application_date": generate_log.get("application_date"),
+            "free_text": generate_log.get("free_text"),
+            "end_date": generate_log.get("end_date"),
+            "landlord_name": generate_log.get("landlord_name"),
+            "tenant_name": generate_log.get("tenant_name"),
+            "address": generate_log.get("address"),
+            "service_fee": generate_log.get("service_fee")
+        })
+    
     await download_collection.insert_one(log_data)
     
     return FileResponse(file_path, media_type=media_type, filename=filename)
+
 
 def delete_all_files():
     directories = ['/app/uploaded_files', '/app/output']
