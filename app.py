@@ -22,7 +22,7 @@ app.mount("/static", StaticFiles(directory="/app"), name="static")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://qanye-app.web.app/"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
