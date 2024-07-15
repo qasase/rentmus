@@ -13,9 +13,22 @@ import schedule
 import time
 import threading
 import pytz
+from motor.motor_asyncio import AsyncIOMotorClient
+from bson import ObjectId
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="/app"), name="static")
+
+# MongoDB connection
+MONGO_URL = os.getenv("MONGO_URL")
+if not MONGO_URL:
+    raise ValueError("No MONGO_URL environment variable has been set.")
+
+# MongoDB connection
+client = AsyncIOMotorClient(MONGO_URL)
+db = client.rent_increase_db
+generate_collection = db.generate_logs
+download_collection = db.download_logs
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -112,6 +125,15 @@ async def generate(data: dict):
 
         expiry_time = datetime.now() + timedelta(minutes=5)
 
+        # Log the generate event to MongoDB
+        log_data = {
+            "timestamp": datetime.now(),
+            "transaction_id": transaction_id,
+            "old_rent": current_rent,
+            "new_rent": new_rent
+        }
+        await generate_collection.insert_one(log_data)
+
         response = {
             "status": "success",
             "docx_path": f"/download/{output_file_name}",
@@ -144,10 +166,23 @@ async def download(filename: str):
     
     if filename.endswith('.docx'):
         media_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        file_type = 'docx'
     elif filename.endswith('.pdf'):
         media_type = 'application/pdf'
+        file_type = 'pdf'
     else:
         raise HTTPException(status_code=400, detail="Unsupported file type")
+    
+    # Extract transaction_id from filename
+    transaction_id = filename.split('_')[-1].split('.')[0]
+
+    # Log the download event to MongoDB
+    log_data = {
+        "timestamp": datetime.now(),
+        "file_type": file_type,
+        "transaction_id": transaction_id
+    }
+    await download_collection.insert_one(log_data)
     
     return FileResponse(file_path, media_type=media_type, filename=filename)
 

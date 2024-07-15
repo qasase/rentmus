@@ -5,19 +5,21 @@ from datetime import datetime
 import os
 import threading
 from groq import Groq
-from dotenv import load_dotenv
 
-load_dotenv()
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+if not GROQ_API_KEY:
+    raise ValueError("No GROQ_API_KEY environment variable has been set.")
+
 
 client = Groq(
-    api_key=os.getenv("GROQ_API_KEY"),
+    api_key=GROQ_API_KEY
 )
 
 def translate_text(text):
     if not text:  # Skip translation if text is empty
         return ""
     
-    prompt = f"""Translate the following Swedish text to English:
+    prompt = f"""Translate the following Swedish text to English, do not add any commentary to the translation:
     {text}
     Translation:"""
     
