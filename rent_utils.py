@@ -136,8 +136,12 @@ def create_new_rent_increase_docx(template_path, landlord_name, tenant_name, app
 
     rounded_service_fee = round(service_fee)
 
-    when_se = end_date.strftime('%Y-%m-%d') if end_date else "tillsvidare"
-    when_en = end_date.strftime('%Y-%m-%d') if end_date else "further notice"
+    if end_date:
+        when_se = f"till och med {end_date.strftime('%Y-%m-%d')}. Därefter återgår hyran till föregående belopp."
+        when_en = f"{end_date.strftime('%Y-%m-%d')}. After which the rent returns to the previous amount."
+    else:
+        when_se = "tillsvidare"
+        when_en = "further notice"
 
     # Translate free_text to English only if it's not empty
     print(f"Original free_text: {free_text}")  # Debug log
