@@ -13,4 +13,3 @@ weasyprint==52.5
 schedule==1.1.0
 groq==0.4.2
 python-dotenv==0.19.1
-motor==3.3.2

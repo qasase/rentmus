@@ -16,7 +16,6 @@ RUN apt-get update && apt-get install -y \
     libfreetype6-dev \
     libfontconfig1-dev \
     libcairo2-dev \
-    libpq-dev \
     gcc \
     fontconfig \
     libffi-dev \
