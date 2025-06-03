@@ -62,6 +62,19 @@
                         </div>
 
                         <div>
+                            <label for="previous-rent" class="block text-sm font-medium text-gray-700">Previous Rent Amount (optional)</label>
+                            <div class="mt-1 relative rounded-md shadow-sm">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <span class="text-gray-500 sm:text-sm">SEK</span>
+                                </div>
+                                <input type="number" name="previous-rent" id="previous-rent" class="focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-12 pr-12 sm:text-sm border-gray-300 rounded-md" placeholder="0.00">
+                                <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                                    <span class="text-gray-500 sm:text-sm">SEK</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
                             <label for="application-date" class="block text-sm font-medium text-gray-700">Application Date</label>
                             <div class="mt-1 relative rounded-md shadow-sm">
                                 <input type="date" name="application-date" id="application-date" class="focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md">
@@ -126,6 +139,7 @@
         function generateDocument() {
             const fileInput = document.getElementById('file-upload');
             const newRent = document.getElementById('new-rent').value;
+            const previousRent = document.getElementById('previous-rent').value;
             const applicationDate = document.getElementById('application-date').value;
             const endDate = document.getElementById('end-date').value;
             const freeText = document.getElementById('free-text').value;
@@ -151,7 +165,8 @@
                     new_rent: parseFloat(newRent),
                     application_date: applicationDate,
                     end_date: endDate,
-                    free_text: freeText
+                    free_text: freeText,
+                    previous_rent: previousRent ? parseFloat(previousRent) : null
                 };
 
                 fetch('/generate', {

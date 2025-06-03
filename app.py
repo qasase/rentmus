@@ -51,6 +51,7 @@ async def generate(data: dict):
     try:
         filename = data["filename"]
         new_rent = float(data["new_rent"])
+        previous_rent = data.get("previous_rent")
         application_date = datetime.strptime(data["application_date"], "%Y-%m-%d")
         free_text = data.get("free_text", "")
         end_date = datetime.strptime(data["end_date"], "%Y-%m-%d") if data.get("end_date") else None
@@ -65,6 +66,9 @@ async def generate(data: dict):
             raise FileNotFoundError(f"Uploaded file not found: {pdf_path}")
 
         landlord_name, tenant_name, address, transaction_id, current_rent = extract_info_from_pdf(pdf_path)
+
+        if previous_rent is not None:
+            current_rent = str(int(float(previous_rent)))
 
         output_folder = os.path.join("/app", "output")
         os.makedirs(output_folder, exist_ok=True)
