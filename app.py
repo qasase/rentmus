@@ -14,6 +14,8 @@ import time
 import threading
 import pytz
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List, Optional
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="/app"), name="static")
@@ -65,7 +67,7 @@ async def generate(data: dict):
         if not os.path.exists(pdf_path):
             raise FileNotFoundError(f"Uploaded file not found: {pdf_path}")
 
-        landlord_name, tenant_name, address, transaction_id, current_rent = extract_info_from_pdf(pdf_path)
+        signees, address, transaction_id, current_rent = extract_info_from_pdf(pdf_path)
 
         if previous_rent is not None:
             current_rent = str(int(float(previous_rent)))
@@ -78,7 +80,7 @@ async def generate(data: dict):
         service_fee = new_rent * 0.0495
 
         docx_output_path = create_new_rent_increase_docx(
-            template_path, landlord_name, tenant_name, application_date,
+            template_path, signees, application_date,
             current_rent, new_rent, service_fee, address, transaction_id,
             free_text, end_date, output_path
         )
@@ -141,6 +143,101 @@ async def generate(data: dict):
         import traceback
         error_msg = f"An error occurred: {str(e)}\n{traceback.format_exc()}"
         print(error_msg)  # This will print to the console/logs
+        raise HTTPException(status_code=500, detail=error_msg)
+
+# Pydantic model for the new direct generation endpoint
+class DirectGenerateRequest(BaseModel):
+    signees: List[str]
+    address: str
+    transaction_id: Optional[str] = "N/A"
+    current_rent: str # Keep as string to match potential PDF extraction format
+    new_rent: float
+    application_date: str # Expects YYYY-MM-DD
+    percentage_fee: float
+    free_text: Optional[str] = ""
+    end_date: Optional[str] = None # Expects YYYY-MM-DD
+
+@app.post("/generate_direct_pdf")
+async def generate_direct_pdf(request_data: DirectGenerateRequest):
+    try:
+        application_date_dt = datetime.strptime(request_data.application_date, "%Y-%m-%d")
+        end_date_dt = datetime.strptime(request_data.end_date, "%Y-%m-%d") if request_data.end_date else None
+
+        template_path = os.path.join("/app", "template.docx")
+        output_folder = os.path.join("/app", "output")
+        os.makedirs(output_folder, exist_ok=True)
+        
+        # Use a timestamp or a more unique ID if transaction_id can be N/A frequently
+        # For now, using transaction_id or a timestamp if it's N/A
+        base_file_id = request_data.transaction_id if request_data.transaction_id and request_data.transaction_id != "N/A" else datetime.now().strftime("%Y%m%d%H%M%S")
+        output_file_name_docx = f"Rent_Increase_{base_file_id}.docx"
+        output_path_docx = os.path.join(output_folder, output_file_name_docx)
+
+        service_fee = request_data.new_rent * request_data.percentage_fee
+
+        docx_output_path = create_new_rent_increase_docx(
+            template_path=template_path,
+            signees=request_data.signees,
+            application_date=application_date_dt,
+            current_rent=str(request_data.current_rent), # Ensure it's a string as expected by create_new_rent_increase_docx
+            new_rent=request_data.new_rent,
+            service_fee=service_fee,
+            address=request_data.address,
+            transaction_id=request_data.transaction_id,
+            free_text=request_data.free_text,
+            end_date=end_date_dt,
+            output_path=output_path_docx
+        )
+
+        print(f"DOCX created directly: {docx_output_path}")
+        print(f"DOCX file exists: {os.path.exists(docx_output_path)}")
+
+        with open(docx_output_path, "rb") as docx_file:
+            result = mammoth.convert_to_html(docx_file)
+            html_content = result.value
+
+        css = CSS(string='''
+            @font-face {
+                font-family: 'Times New Roman';
+                src: url('/app/fonts/times.ttf') format('truetype');
+            }
+            body {
+                font-family: 'Times New Roman', serif;
+            }
+        ''')
+        
+        pdf_output_bytesio = BytesIO()
+        HTML(string=html_content).write_pdf(pdf_output_bytesio, stylesheets=[css])
+        pdf_output_bytesio.seek(0)
+
+        output_file_name_pdf = f"Rent_Increase_{base_file_id}.pdf"
+        output_path_pdf = os.path.join(output_folder, output_file_name_pdf)
+        with open(output_path_pdf, "wb") as pdf_file:
+            pdf_file.write(pdf_output_bytesio.getvalue())
+
+        print(f"PDF created directly: {output_path_pdf}")
+        print(f"PDF file exists: {os.path.exists(output_path_pdf)}")
+
+        schedule_file_deletion(docx_output_path, 300) # 5 minutes
+        schedule_file_deletion(output_path_pdf, 300)
+
+        expiry_time = datetime.now() + timedelta(minutes=5)
+
+        response = {
+            "status": "success",
+            "docx_path": f"/download/{output_file_name_docx}",
+            "pdf_path": f"/download/{output_file_name_pdf}",
+            "html_preview": html_content,
+            "expiry_time": expiry_time.isoformat(),
+            "docx_filename": output_file_name_docx,
+            "pdf_filename": output_file_name_pdf
+        }
+        return JSONResponse(response)
+
+    except Exception as e:
+        import traceback
+        error_msg = f"An error occurred: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
 
 @app.get("/download/{filename}")

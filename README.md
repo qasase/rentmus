@@ -82,6 +82,34 @@ pip install -r requirements.txt
    - Preview the generated document.
    - Download the generated DOCX file.
 
+## Running with Docker Compose
+
+Alternatively, you can run the application using Docker Compose. This is the recommended method for development and deployment as it handles dependencies and environment setup within a container.
+
+1.  **Ensure Docker and Docker Compose are installed.**
+
+2.  **Build the Docker image (if not already built or if Dockerfile/requirements.txt changed):**
+
+    ```bash
+    docker compose build
+    ```
+
+3.  **Start the application:**
+
+    ```bash
+    docker compose up
+    ```
+
+    The application will be accessible at `http://localhost:8000`.
+
+4.  **To stop the application:**
+
+    Press `Ctrl+C` in the terminal where `docker compose up` is running, or run the following command from another terminal in the project root:
+
+    ```bash
+    docker compose down
+    ```
+
 ## Endpoints
 
 The application exposes the following endpoints:

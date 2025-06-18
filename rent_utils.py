@@ -61,49 +61,81 @@ def schedule_file_deletion(file_path, delay_seconds):
 def extract_info_from_pdf(pdf_path):
     print(f"Extracting info from PDF: {pdf_path}")
     with pdfplumber.open(pdf_path) as pdf:
-        first_page = pdf.pages[0]
-        text = first_page.extract_text()
-        print(f"Extracted text: {text}")
+        if not pdf.pages:
+            raise ValueError("PDF has no pages.")
+        
+        first_page_text = pdf.pages[0].extract_text()
+        if not first_page_text:
+            first_page_text = "" # Ensure it's a string if no text extracted
+        
+        print(f"Extracted text from first page: {first_page_text}")
 
-        landlord_name = re.search(r'\(1\)(.*?),', text).group(1).strip()
-        tenant_name = re.search(r'\(2\)(.*?)(,|\()', text).group(1).strip()
-        address = re.search(r'adress\s+(.*?),', text, re.IGNORECASE).group(1).strip()
-        transaction_search = re.search(r'Transaktion\s+(\S+)', text)
+        # Regex to find signees like (1) Name, (2) Another Name
+        # It captures the name part after the (number) prefix.
+        signee_matches = re.finditer(r'\(\d+\)\s*([^,\(]+)', first_page_text)
+        signees = [match.group(1).strip() for match in signee_matches]
+        
+        if not signees:
+            print("Warning: No signees found with the pattern '(number) Name' on the first page. The generated document might be missing signee information.")
+
+        address_match = re.search(r'adress\s+(.*?),', first_page_text, re.IGNORECASE)
+        address = address_match.group(1).strip() if address_match else "N/A"
+        
+        transaction_search = re.search(r'Transaktion\s+(\S+)', first_page_text)
         transaction_id = transaction_search.group(1).strip() if transaction_search else "N/A"
 
         current_rent = None
-        for page in pdf.pages:
-            text = page.extract_text()
-            match = re.search(r'Hyran är\s+([\d\s]+)', text)
-            if match:
-                current_rent = match.group(1).strip().replace(" ", "")
-                break
-
+        # Search for current_rent across all pages
+        for i, page in enumerate(pdf.pages):
+            page_text = page.extract_text()
+            if page_text: # Ensure text was extracted
+                # Try primary pattern
+                match = re.search(r'Hyran är\s+([\d\s]+)', page_text)
+                if match:
+                    current_rent = match.group(1).strip().replace(" ", "")
+                    break
+                # Try alternative pattern if primary not found on this page
+                match_alt = re.search(r'nuvarande hyra[:\s]+([\d\s]+)kr', page_text, re.IGNORECASE)
+                if match_alt:
+                    current_rent = match_alt.group(1).strip().replace(" ", "")
+                    break
+        
         if current_rent is None:
-            raise ValueError("Current rent not found in the PDF")
+            print("Warning: Current rent not found in the PDF using known patterns. Defaulting to 'N/A' or consider raising an error.")
+            current_rent = "N/A" # Or raise ValueError("Current rent not found in the PDF.")
 
-        print(f"Extracted info: {landlord_name}, {tenant_name}, {address}, {transaction_id}, {current_rent}")
-        return landlord_name, tenant_name, address, transaction_id, current_rent
+        print(f"Extracted info: Signees: {signees}, Address: {address}, Transaction ID: {transaction_id}, Current Rent: {current_rent}")
+        return signees, address, transaction_id, current_rent
 
 def replace_placeholders(doc, placeholders):
     def process_paragraph(paragraph):
         text = paragraph.text
         
+        # First, replace all known placeholders with their values
         for key, value in placeholders.items():
             text = text.replace(key, str(value))
         
+        # Then, remove any [SIGNEE_X] placeholders that were not filled
+        # because there weren't that many signees.
+        # Iterate up to a reasonable max, e.g., 20 potential signees.
+        for i in range(1, 21): # Check for [SIGNEE_1] up to [SIGNEE_20]
+            leftover_placeholder = f'[SIGNEE_{i}]'
+            # If the placeholder is still literally in the text after the first loop, 
+            # it means it was NOT a key in 'placeholders' that got replaced with actual content.
+            if leftover_placeholder in text:
+                 text = text.replace(leftover_placeholder, '')
+
         paragraph.clear()
         
-        is_bold_line = ("(1)" in text and "Hyresvärden" in text) or \
-                       ("(2)" in text and "Hyresgästen" in text) or \
-                       ("(1)" in text and "Landlord" in text) or \
-                       ("(2)" in text and "Tenant" in text) or \
-                       text.strip() == "Landlord" or \
-                       text.strip() == "Tenant" or \
-                       text.strip().startswith("_____")
+        # Determine if the line should be bold
+        # A line is considered for bolding if it starts with (number) or is a signature line.
+        is_bold_line = bool(re.match(r'^\s*\(\d+\)', text)) or text.strip().startswith("_____")
         
-        run = paragraph.add_run(text)
-        run.bold = is_bold_line
+        # Only add run if there's non-whitespace text to avoid empty runs
+        if text.strip(): 
+            run = paragraph.add_run(text)
+            run.bold = is_bold_line
+        # If text becomes empty or only whitespace after replacements, the paragraph will effectively be cleared.
 
     for paragraph in doc.paragraphs:
         process_paragraph(paragraph)
@@ -130,8 +162,8 @@ def set_font_to_times_new_roman(doc):
                     for run in paragraph.runs:
                         run.font.name = 'Times New Roman'
 
-def create_new_rent_increase_docx(template_path, landlord_name, tenant_name, application_date, current_rent, new_rent, service_fee, address, transaction_id, free_text, end_date, output_path):
-    print(f"Creating new rent increase DOCX: {output_path}")
+def create_new_rent_increase_docx(template_path, signees, application_date, current_rent, new_rent, service_fee, address, transaction_id, free_text, end_date, output_path):
+    print(f"Creating new rent increase DOCX: {output_path} for signees: {signees}")
     doc = Document(template_path)
 
     rounded_service_fee = round(service_fee)
@@ -143,14 +175,11 @@ def create_new_rent_increase_docx(template_path, landlord_name, tenant_name, app
         when_se = "tillsvidare"
         when_en = "further notice"
 
-    # Translate free_text to English only if it's not empty
-    print(f"Original free_text: {free_text}")  # Debug log
+    print(f"Original free_text: {free_text}")
     free_text_en = translate_text(free_text) if free_text else ''
-    print(f"Translated free_text: {free_text_en}")  # Debug log
+    print(f"Translated free_text: {free_text_en}")
 
     placeholders = {
-        '[LANDLORD_NAME]': landlord_name,
-        '[TENANT_NAME]': tenant_name,
         '[ADDRESS]': address,
         '[TRANSACTION_ID]': transaction_id,
         '[CURRENT_RENT]': current_rent,
@@ -164,10 +193,23 @@ def create_new_rent_increase_docx(template_path, landlord_name, tenant_name, app
         '[WHEN_EN]': when_en,
     }
 
+    # Add dynamic signee placeholders with full formatting
+    if signees: # Check if the signees list is not empty
+        # Format landlord (SIGNEE_1)
+        placeholders['[SIGNEE_1]'] = f"(1) {signees[0]}, +46 xxx xx xx (Hyresvärden) och"
+        
+        # Format tenants (SIGNEE_2, SIGNEE_3, ...)
+        for i in range(1, len(signees)):
+            tenant_name = signees[i]
+            placeholder_key = f'[SIGNEE_{i+1}]' # e.g., [SIGNEE_2], [SIGNEE_3]
+            placeholder_value = f"({i+1}) {tenant_name}, +46 xxx xx xx (Hyresgästen)"
+            placeholders[placeholder_key] = placeholder_value
+    else:
+        print("Warning: No signees provided to create_new_rent_increase_docx. Signee placeholders in the document might not be filled.")
+
     print("Placeholders to be replaced:", placeholders)
 
     replace_placeholders(doc, placeholders)
-
     set_font_to_times_new_roman(doc)
 
     doc.save(output_path)
