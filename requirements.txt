@@ -11,5 +11,5 @@ docx2pdf==0.1.8
 mammoth==1.4.19
 weasyprint==52.5
 schedule==1.1.0
-groq==0.4.2
+deepl==1.15.0
 python-dotenv==0.19.1

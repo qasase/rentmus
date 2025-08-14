@@ -4,47 +4,24 @@ from docx import Document
 from datetime import datetime
 import os
 import threading
-from groq import Groq
+import deepl
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-if not GROQ_API_KEY:
-    raise ValueError("No GROQ_API_KEY environment variable has been set.")
+DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
+if not DEEPL_API_KEY:
+    raise ValueError("No DEEPL_API_KEY environment variable has been set.")
 
-
-client = Groq(
-    api_key=GROQ_API_KEY
-)
+translator = deepl.Translator(DEEPL_API_KEY)
 
 def translate_text(text):
     if not text:  # Skip translation if text is empty
         return ""
     
-    prompt = f"""Translate the following Swedish text to English, do not add any commentary to the translation:
-    {text}
-    Translation:"""
-    
-    chat_completion = client.chat.completions.create(
-        messages=[
-            {
-                "role": "user",
-                "content": prompt,
-            }
-        ],
-        model="llama3-8b-8192",
-        temperature=0.1,
-        max_tokens=200,
-        top_p=1,
-    )
-    
-    response = chat_completion.choices[0].message.content.strip()
-    
-    # Extract only the translated text
-    translation_start = response.find('"') + 1
-    translation_end = response.rfind('"')
-    if translation_start > 0 and translation_end > translation_start:
-        return response[translation_start:translation_end]
-    else:
-        return response  # Return full response if we can't extract the translation
+    try:
+        result = translator.translate_text(text, source_lang="SV", target_lang="EN-US")
+        return result.text
+    except Exception as e:
+        print(f"Translation error: {e}")
+        return text  # Return original text if translation fails
 
 def schedule_file_deletion(file_path, delay_seconds):
     def delete_file():
@@ -130,9 +107,9 @@ def replace_placeholders(doc, placeholders):
         # Determine if the line should be bold
         # A line is considered for bolding if it starts with (number) or is a signature line.
         is_bold_line = bool(re.match(r'^\s*\(\d+\)', text)) or text.strip().startswith("_____")
-        
+
         # Only add run if there's non-whitespace text to avoid empty runs
-        if text.strip(): 
+        if text.strip():
             run = paragraph.add_run(text)
             run.bold = is_bold_line
         # If text becomes empty or only whitespace after replacements, the paragraph will effectively be cleared.
@@ -179,6 +156,10 @@ def create_new_rent_increase_docx(template_path, signees, application_date, curr
     free_text_en = translate_text(free_text) if free_text else ''
     print(f"Translated free_text: {free_text_en}")
 
+    # Handle free text - use empty string if None or empty to avoid displaying "None"
+    free_text_display = free_text if free_text else ''
+    free_text_en_display = free_text_en if free_text_en else ''
+
     placeholders = {
         '[ADDRESS]': address,
         '[TRANSACTION_ID]': transaction_id,
@@ -187,16 +168,16 @@ def create_new_rent_increase_docx(template_path, signees, application_date, curr
         '[SERVICE_FEE]': str(rounded_service_fee),
         '[APPLICATION_DATE]': application_date.strftime('%Y-%m-%d'),
         '[TODAYS_DATE]': datetime.today().strftime('%Y-%m-%d'),
-        '[FREE_TEXT]': free_text,
-        '[FREE_TEXT_EN]': free_text_en,
+        '[FREE_TEXT]': free_text_display,
+        '[FREE_TEXT_EN]': free_text_en_display,
         '[WHEN_SE]': when_se,
         '[WHEN_EN]': when_en,
     }
 
     # Add dynamic signee placeholders with full formatting
     if signees: # Check if the signees list is not empty
-        # Format landlord (SIGNEE_1)
-        placeholders['[SIGNEE_1]'] = f"(1) {signees[0]}, +46 xxx xx xx (Hyresvärden) och"
+        # Format landlord (SIGNEE_1) - removed "och" since template already contains "och and"
+        placeholders['[SIGNEE_1]'] = f"(1) {signees[0]}, +46 xxx xx xx (Hyresvärden)"
         
         # Format tenants (SIGNEE_2, SIGNEE_3, ...)
         for i in range(1, len(signees)):

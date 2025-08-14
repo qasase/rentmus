@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 import os
 from datetime import datetime, timedelta
 from rent_utils import extract_info_from_pdf, create_new_rent_increase_docx, schedule_file_deletion
+from scrive_utils import start_signing_process
 import uvicorn
 import mammoth
 from mammoth.transforms import paragraph
@@ -239,6 +240,52 @@ async def generate_direct_pdf(request_data: DirectGenerateRequest):
         error_msg = f"An error occurred: {str(e)}\n{traceback.format_exc()}"
         print(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
+
+# Pydantic models for the Scrive integration
+class ScriveSignee(BaseModel):
+    name: str
+    email: str
+    phone_number: str
+    has_swedish_id: bool
+
+class ScriveRequest(BaseModel):
+    filename: str # PDF filename from the /generate or /generate_direct_pdf step
+    title: str
+    signees: List[ScriveSignee]
+
+@app.post("/send_to_scrive")
+async def send_to_scrive(request_data: ScriveRequest):
+    """
+    Receives the filename of a generated PDF and signee information,
+    then initiates a signing process via Scrive (simulation).
+    """
+    try:
+        output_folder = os.path.join("/app", "output")
+        file_path = os.path.join(output_folder, request_data.filename)
+
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail=f"File not found in output directory: {request_data.filename}")
+
+        # Convert Pydantic models to simple dicts for the utility function
+        signees_data = [signee.dict() for signee in request_data.signees]
+
+        # Call the placeholder Scrive utility function
+        scrive_response = start_signing_process(
+            file_path=file_path,
+            title=request_data.title,
+            signees=signees_data
+        )
+        
+        return JSONResponse(content=scrive_response)
+
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        import traceback
+        error_msg = f"An error occurred while sending to Scrive: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
+
 
 @app.get("/download/{filename}")
 async def download(filename: str):
